@@ -1,14 +1,15 @@
 import os,sys,Header,numpy,pylab
 import ctypes as C
 import SigPyProcUtils as utils
+from scipy.stats.stats import chisquare
 lib = C.CDLL("libSigPyProc.so")
 
 #In progress
 class BandpassFromBuffer(Header.Header):
     def __init__(self,parentInfo,mallocBuffer=None):
         Header.Header.__init__(self,parentInfo)
-        pass
-
+        if not mallocBuffer == None:
+            self.bpassBuffer = mallocBuffer
 
 class FoldedData(Header.Header):
     def __init__(self,parentInfo,foldBuffer,countsBuffer,
@@ -16,8 +17,8 @@ class FoldedData(Header.Header):
         Header.Header.__init__(self,parentInfo)
         self.foldBuffer = foldBuffer
         self.countsBuffer = countsBuffer
-        self.foldArray = foldBuffer.toNdarray().reshape(nints,nbands,nbins)
-        self.countsArray = countsBuffer.toNdarray().reshape(nints,nbands,nbins)
+        self.foldArray = foldBuffer.Ndarray.reshape(nints,nbands,nbins)
+        self.countsArray = countsBuffer.Ndarray.reshape(nints,nbands,nbins)
         self.foldArray = self.foldArray/self.countsArray 
         self.period = period
         self.dm = dm
@@ -47,19 +48,34 @@ class FoldedData(Header.Header):
                       ).round().astype("int32")%self.nbins
         return chanDelays
         
-    def optimiseDM(self,hidm=20,lodm=-20,dmstep=1):
+    def getPdelays(self,p):
+        Wsubint = self.nints/(self.info["tsamp"]*self.info["nsamples"])
+        Wbin = self.period/self.nbins
+        drifts = p*(numpy.arange(self.nints)
+                    *Wsubint/Wbin).round()%self.nbins
+        return drifts.astype("int32")
+
+    def optimiseDM(self,hidm=50,lodm=-50,dmstep=1):
         dms = numpy.arange(lodm,hidm,float(dmstep))
         dmcurve = numpy.empty_like(dms)
         for jj,dm in enumerate(dms):
-            self.nFreqPhase = numpy.empty_like(self.freqPhase)
+            nFreqPhase = numpy.empty_like(self.freqPhase)
             delays = self.getDMdelays(dm)
             for ii in range(self.nbands):
-                self.nFreqPhase[ii] = utils.rollArray(self.freqPhase[ii],delays[ii],0)
-            dmcurve[jj] = self.nFreqPhase.sum(axis=0).max()
+                nFreqPhase[ii] = utils.rollArray(self.freqPhase[ii],delays[ii],0)
+            dmcurve[jj] = chisquare(nFreqPhase.sum(axis=0))[0]
         return dmcurve
 
-    def optimiseP(self):
-        pass
+    def optimiseP(self,loP=-0.005,hiP=0.005,Pstep=0.000005):
+        periods = numpy.arange(loP,hiP,float(Pstep))
+        pcurve = numpy.empty_like(periods)
+        for jj,p in enumerate(periods):
+            nTimePhase = numpy.empty_like(self.timePhase)
+            delays = self.getPdelays(p)
+            for ii in range(self.nints):
+                nTimePhase[ii] = utils.rollArray(self.timePhase[ii],delays[ii],0)
+            pcurve[jj] = chisquare(nTimePhase.sum(axis=0))[0]
+        return pcurve
 
     def plot(self,cmap="jet",interp="gaussian"):
         pylab.subplot(221)
@@ -79,17 +95,20 @@ class FoldedData(Header.Header):
         pylab.xlabel("Phase")
         pylab.ylabel("Power")
         pylab.plot(self.profile/self.profile.mean())
-        
-        pylab.subplot(426)
-        pylab.xlabel("DM")
-        pylab.ylabel("SNR")
-        prof = self.optimiseDM()
-        pylab.plot(prof)
+       
+        if self.nbands > 1:
+            chiDM = self.optimiseDM()
+            pylab.subplot(426)
+            pylab.xlabel("DM")
+            pylab.ylabel("SNR")
+            pylab.plot(chiDM)
 
-        pylab.subplot(428)
-        pylab.xlabel("Period")
-        pylab.ylabel("SNR")
-        pylab.plot(self.profile/self.profile.mean())
+        if self.nints > 1:
+            chiP = self.optimiseP()
+            pylab.subplot(428)
+            pylab.xlabel("Period")
+            pylab.ylabel("SNR")
+            pylab.plot(chiP)
 
         pylab.show()
         
@@ -102,7 +121,7 @@ class TimeSeries(Header.Header):
     ----------
     
     \tparentInfo   -- Dictionary containing header info or 32bit .tim file
-    \tmallocBuffer -- SigPyProcUtils.Malloc instance containing time series 
+    \tmallocBuffer -- SigPyProcUtils.Buffer instance containing time series 
     
     Methods
     -------
@@ -120,7 +139,7 @@ class TimeSeries(Header.Header):
         parentInfo -- may be a file name or a dict instance containing 
                       header information
 
-        mallocBuffer -- a SigPyProcUtils Malloc instance.
+        mallocBuffer -- a SigPyProcUtils Buffer instance.
                         If parentInfo is a file, this argument
                         is ignored
         """ 
@@ -140,12 +159,12 @@ class TimeSeries(Header.Header):
         Creates class attribute timBuffer.
         """
 
-        f = utils.Cfile(self.file,"r")
+        f = utils.File(self.file,"r")
         f.seek(self.hdrlen)
-        self.timBuffer = utils.Malloc(self.info["nsamples"],C.c_float)
-        f.read(self.timBuffer.buffer,self.timBuffer.nbytes)
+        self.timBuffer = utils.Buffer(self.info["nsamples"],C.c_float)
+        f.cread(self.timBuffer)
 
-    def fold(self,period,nbins=50,nsubs=1):
+    def fold(self,period,nbins=50,nints=1):
         """Fold time series into phase bins and subintegrations.
 
         Args:
@@ -156,11 +175,11 @@ class TimeSeries(Header.Header):
         Returns: FoldedData instance  
         """
 
-        foldBuffer  = utils.Malloc(nbins*nsubs,C.c_double)
-        countBuffer = utils.Malloc(nbins*nsubs,C.c_int)
-        lib.foldTim(self.timBuffer.buffer,foldBuffer.buffer,
-                    countBuffer.buffer,C.c_double(self.info["tsamp"]),
-                    C.c_double(period),self.info["nsamples"],nbins,nsubs)
+        foldBuffer  = utils.Buffer(nbins*nints,C.c_double)
+        countBuffer = utils.Buffer(nbins*nints,C.c_int)
+        lib.foldTim(self.timBuffer.Cbuffer,foldBuffer.Cbuffer,
+                    countBuffer.Cbuffer,C.c_double(self.info["tsamp"]),
+                    C.c_double(period),self.info["nsamples"],nbins,nints)
         parentInfo = self.info.copy()
         return FoldedData(parentInfo,foldBuffer,countBuffer,
                           period,self.info.get("refdm",0),
@@ -176,8 +195,8 @@ class TimeSeries(Header.Header):
             fftsize = self.info["nsamples"]
         else:
             fftsize = self.info["nsamples"]-1
-        fftBuffer = utils.Malloc(fftsize+2,C.c_float)
-        lib.rfft(self.timBuffer.buffer,fftBuffer.buffer,fftsize)
+        fftBuffer = utils.Buffer(fftsize+2,C.c_float)
+        lib.rfft(self.timBuffer.Cbuffer,fftBuffer.Cbuffer,fftsize)
         return SpectraFromBuffer(self.info.copy(),fftBuffer)
 
     def runningMean(self,window=10001):
@@ -186,8 +205,8 @@ class TimeSeries(Header.Header):
         Args:
         window -- width in bins of running mean filter
         """
-        newTimBuffer  = utils.Malloc(self.info["nsamples"],C.c_float)
-        lib.runningMean(self.timBuffer.buffer,newTimBuffer.buffer,self.info["nsamples"],window)
+        newTimBuffer  = utils.Buffer(self.info["nsamples"],C.c_float)
+        lib.runningMean(self.timBuffer.Cbuffer,newTimBuffer.Cbuffer,self.info["nsamples"],window)
         return TimeSeries(self.info.copy(),newTimBuffer)
         
 
@@ -195,9 +214,10 @@ class TimeSeries(Header.Header):
         """Write time series in presto .dat format.
         """
         self.make_inf(outfile="%s.inf"%(basename))
-        datfile = utils.Cfile("%s.dat"%(basename),"w+")
-        self.timBuffer.toFile(datfile)
-
+        datfile = utils.File("%s.dat"%(basename),"w+")
+        self.timBuffer.Ndarray.toFile(datfile)
+        
+    
 
 class MultiTimeSeries:
     def __init__(self,files=None):
@@ -213,11 +233,10 @@ class MultiTimeSeries:
     def findLags(self,window=200):
         keys = self.tims.keys()
         reference = self.tims[keys[0]]
-        referenceAr = reference.timBuffer.toNdarray()
         self.lags[keys[0]] = 0
         for key in keys[1:]:
-            tim = self.tims[key].timBuffer.toNdarray()
-            corr = numpy.correlate(referenceAr[window:-window],tim,mode="valid")
+            corr = numpy.correlate(reference.timBuffer.Cbuffer[window:-window],
+                                   self.tims[key].timBuffer.Cbuffer,mode="valid")
             self.lags[key] = corr.argmax()-window
         minlag = min(self.lags.values())
         print minlag 
@@ -234,7 +253,7 @@ class SpectraFromBuffer(Header.Header):
     ----------
 
     \tparentInfo   -- Dictionary containing header info 
-    \tmallocBuffer -- SigPyProcUtils.Malloc instance containing complex spectrum
+    \tmallocBuffer -- SigPyProcUtils.Buffer instance containing complex spectrum
 
     Methods
     -------
@@ -250,7 +269,7 @@ class SpectraFromBuffer(Header.Header):
 
         Args:
         parentInfo -- dict instance containing header information
-        mallocBuffer -- a SigPyProcUtils Malloc instance.
+        mallocBuffer -- a SigPyProcUtils Buffer instance.
 
         """
         Header.Header.__init__(self,parentInfo)
@@ -267,7 +286,7 @@ class SpectraFromBuffer(Header.Header):
     def _formSpec(self):
         """Form power spectrum from real and complex fft output.
         """
-        ar = self.fftBuffer.toNdarray().astype("float64").\
+        ar = self.fftBuffer.Ndarray.astype("float64").\
             reshape((self.info["nsamples"]+2)/2,2).\
             transpose()
         self.realPart  = ar[0]
@@ -300,8 +319,8 @@ class SpectraFromBuffer(Header.Header):
         """
 
         timsize = (self.specArray.shape[0]*2)-2
-        timBuffer = utils.Malloc(timsize,C.c_float)
-        lib.ifft(self.fftBuffer.buffer,timBuffer.buffer,timsize)
+        timBuffer = utils.Buffer(timsize,C.c_float)
+        lib.ifft(self.fftBuffer.Cbuffer,timBuffer.Cbuffer,timsize)
         return TimeSeries(self.info.copy(),timBuffer)
         
     def rednoiseSinc(self,nbins=100):
@@ -417,7 +436,7 @@ class Filterbank(Header.Header):
         filename -- string containing name of file to process
         """
         Header.Header.__init__(self,filename)
-        self.f = utils.Cfile(filename,"r")
+        self.f = utils.File(filename,"r")
 
     def getDMdelays(self,dm):
         chanFreqs = (numpy.arange(self.info["nchans"])
@@ -444,22 +463,22 @@ class Filterbank(Header.Header):
         """
 
         self.f.seek(self.hdrlen)
-        readBuffer = utils.Malloc(blocksize*self.info["nchans"],C.c_ubyte)
-        if time: timBuffer = utils.Malloc(self.info["nsamples"],C.c_float)
-        if freq: bpassBuffer = utils.Malloc(self.info["nchans"],C.c_float)
+        readBuffer = utils.Buffer(blocksize*self.info["nchans"],C.c_ubyte)
+        if time: timBuffer = utils.Buffer(self.info["nsamples"],C.c_float)
+        if freq: bpassBuffer = utils.Buffer(self.info["nchans"],C.c_float)
         lastread = self.info["nsamples"]%blocksize
         nreads = (self.info["nsamples"]-lastread)/blocksize
         for ii in xrange(nreads):
-            self.f.read(readBuffer.buffer,blocksize*self.info["nchans"])
-            if time: lib.getTim(readBuffer.buffer,timBuffer.buffer,
+            self.f.cread(readBuffer,blocksize*self.info["nchans"])
+            if time: lib.getTim(readBuffer.Cbuffer,timBuffer.Cbuffer,
                                 self.info["nchans"],blocksize,ii*blocksize)
-            if freq: lib.getBpass(readBuffer.buffer,bpassBuffer.buffer,
+            if freq: lib.getBpass(readBuffer.Cbuffer,bpassBuffer.Cbuffer,
                                   self.info["nchans"],blocksize)
 
-        self.f.read(readBuffer.buffer,lastread*self.info["nchans"])
-        if time: lib.getTim(readBuffer.buffer,timBuffer.buffer,
+        self.f.cread(readBuffer,lastread*self.info["nchans"])
+        if time: lib.getTim(readBuffer.Cbuffer,timBuffer.Cbuffer,
                             self.info["nchans"],lastread,(ii+1)*blocksize)
-        if freq: lib.getBpass(readBuffer.buffer,bpassBuffer.buffer,
+        if freq: lib.getBpass(readBuffer.Cbuffer,bpassBuffer.Cbuffer,
                               self.info["nchans"],lastread)
 
         if time and freq: return(BandpassFromBuffer(self.info.copy(),bpassBuffer),
@@ -487,18 +506,18 @@ class Filterbank(Header.Header):
         timLen = self.info["nsamples"]-maxDelay
 
         self.f.seek(self.hdrlen)
-        timBuffer = utils.Malloc(timLen,C.c_float)
-        readBuffer = utils.Malloc(self.info["nchans"]*gulp,C.c_ubyte)
+        timBuffer = utils.Buffer(timLen,C.c_float)
+        readBuffer = utils.Buffer(self.info["nchans"]*gulp,C.c_ubyte)
         nreads = int(self.info["nsamples"]/(gulp-maxDelay))
         lastread = self.info["nsamples"]%(gulp-maxDelay)
         
         for ii in xrange(nreads):
-            self.f.read(readBuffer.buffer,gulp*self.info["nchans"])
-            lib.dedisperse(readBuffer.buffer,timBuffer.buffer,delayPointer,
+            self.f.cread(readBuffer,gulp*self.info["nchans"])
+            lib.dedisperse(readBuffer.Cbuffer,timBuffer.Cbuffer,delayPointer,
                            maxDelay, self.info["nchans"], gulp, ii*(gulp-maxDelay))
             self.f.seek(self.hdrlen+(self.info["nchans"]*(ii+1)*(gulp-maxDelay)))
-        self.f.read(readBuffer.buffer,lastread*self.info["nchans"])
-        lib.dedisperse(readBuffer.buffer,timBuffer.buffer,delayPointer,
+        self.f.cread(readBuffer,lastread*self.info["nchans"])
+        lib.dedisperse(readBuffer.Cbuffer,timBuffer.Cbuffer,delayPointer,
                        maxDelay, self.info["nchans"], lastread, (ii+1)*(gulp-maxDelay))
         timInfo = self.info.copy()
         timInfo["nsamples"] = timLen
@@ -523,16 +542,16 @@ class Filterbank(Header.Header):
             return None
 
         self.downsample_header(tfactor=tfactor,ffactor=ffactor)
-        outFile = utils.Cfile(filename,"w+")
-        outFile.write(self.write_header(),len(self.write_header()))
+        outFile = utils.File(filename,"w+")
+        outFile.write(self.write_header())
         self.reset_header()
         
-        readBuffer = utils.Malloc(tfactor*self.info["nchans"],C.c_ubyte)
-        writeBuffer = utils.Malloc(self.info["nchans"]/ffactor,C.c_ubyte)
-        tempBuffer = utils.Malloc(self.info["nchans"]/ffactor,C.c_int)
+        readBuffer = utils.Buffer(tfactor*self.info["nchans"],C.c_ubyte)
+        writeBuffer = utils.Buffer(self.info["nchans"]/ffactor,C.c_ubyte)
+        tempBuffer = utils.Buffer(self.info["nchans"]/ffactor,C.c_int)
 
-        lib.downsampleFil(self.f.f, outFile.f, readBuffer.buffer,
-                          writeBuffer.buffer,tempBuffer.buffer,
+        lib.downsampleFil(self.f.f, outFile.f, readBuffer.Cbuffer,
+                          writeBuffer.Cbuffer,tempBuffer.Cbuffer,
                           tfactor, ffactor, self.info["nchans"],
                           self.info["nsamples"])
 
@@ -559,9 +578,9 @@ class Filterbank(Header.Header):
 
         self.f.seek(self.hdrlen)
         
-        foldBuffer  = utils.Malloc(nbins*nints*nbands,C.c_float)
-        countBuffer = utils.Malloc(nbins*nints*nbands,C.c_int)
-        readBuffer = utils.Malloc(self.info["nchans"]*gulp,C.c_ubyte)
+        foldBuffer  = utils.Buffer(nbins*nints*nbands,C.c_float)
+        countBuffer = utils.Buffer(nbins*nints*nbands,C.c_int)
+        readBuffer = utils.Buffer(self.info["nchans"]*gulp,C.c_ubyte)
         
         nreads = int(self.info["nsamples"]/(gulp-maxDelay))
         lastread = self.info["nsamples"]%(gulp-maxDelay)
@@ -569,17 +588,17 @@ class Filterbank(Header.Header):
         for ii in xrange(nreads):
             sys.stdout.write("%d%%\r"%(100*ii/nreads))
             sys.stdout.flush()
-            self.f.read(readBuffer.buffer,gulp*self.info["nchans"])
-            lib.foldFil(readBuffer.buffer, foldBuffer.buffer, countBuffer.buffer,
+            self.f.cread(readBuffer,gulp*self.info["nchans"])
+            lib.foldFil(readBuffer.Cbuffer, foldBuffer.Cbuffer, countBuffer.Cbuffer,
                         delayPointer, maxDelay, C.c_double(self.info["tsamp"]),
                         C.c_double(period), gulp, self.info["nchans"], nbins,
                         nints, nbands, ii*(gulp-maxDelay))
 
             self.f.seek(self.hdrlen+(self.info["nchans"]*(ii+1)*(gulp-maxDelay)))
 
-        self.f.read(readBuffer.buffer,lastread*self.info["nchans"])
+        self.f.cread(readBuffer,lastread*self.info["nchans"])
 
-        lib.foldFil(readBuffer.buffer, foldBuffer.buffer, countBuffer.buffer,
+        lib.foldFil(readBuffer.Cbuffer, foldBuffer.Cbuffer, countBuffer.Cbuffer,
                     delayPointer, maxDelay, C.c_double(self.info["tsamp"]), 
                     C.c_double(period), gulp, self.info["nchans"], nbins,
                     nints, nbands, (ii+1)*(gulp-maxDelay))

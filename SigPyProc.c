@@ -2,8 +2,23 @@
 #include <stdlib.h>
 #include <fftw3.h>
 #include <time.h>
+#include <Python.h>
  
 /*----------------------------------------------------------------------------*/
+
+void testarray(unsigned char* x,int lenx){
+
+  int ii;
+  for (ii=0;ii<lenx;ii++){
+    printf("%d/%d\t",x[ii],ii);
+  }
+
+}
+
+FILE* cfile(PyObject* file){
+  FILE* cfile = PyFile_AsFile(file);
+  return(cfile); 
+}
 
 void runningMean(float* inbuffer,
                  float* outbuffer,
