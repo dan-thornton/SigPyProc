@@ -105,7 +105,7 @@ class TimeSeries(Header):
         """
         self.make_inf(outfile="%s.inf"%(basename))
         datfile = File("%s.dat"%(basename),"w+")
-        self.timBuffer.Ndarray.toFile(datfile)
+        self.timBuffer.Ndarray.tofile(datfile)
         
     
 

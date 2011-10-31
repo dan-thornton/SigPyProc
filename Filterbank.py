@@ -1,7 +1,7 @@
-import numpy,pylab
+import numpy,pylab,sys,cPickle
 import ctypes as C
 from Header import Header
-from SigPyProcUtils import File,Buffer
+from SigPyProcUtils import File,Buffer,arrayToPointer
 lib = C.CDLL("libSigPyProc.so")
 
 
@@ -29,7 +29,7 @@ class Filterbank(Header):
         filename -- string containing name of file to process
         """
         Header.__init__(self,filename)
-        self.f = utils.File(filename,"r")
+        self.f = File(filename,"r")
 
     def getDMdelays(self,dm):
         chanFreqs = (numpy.arange(self.info["nchans"])
@@ -55,23 +55,33 @@ class Filterbank(Header):
         if freq and not time: BandpassFromBuffer instance
         """
 
+        if self.info["nbits"] == 32:
+            readBuffer = Buffer(blocksize*self.info["nchans"],C.c_float)
+            getTim = lib.getTim32
+            getBpass = lib.getBpass32
+        elif self.info["nbits"] == 8:
+            readBuffer = Buffer(blocksize*self.info["nchans"],C.c_ubyte)
+            getTim = lib.getTim8
+            getBpass = lib.getBpass8
+
         self.f.seek(self.hdrlen)
-        readBuffer = Buffer(blocksize*self.info["nchans"],C.c_ubyte)
         if time: timBuffer = Buffer(self.info["nsamples"],C.c_float)
         if freq: bpassBuffer = Buffer(self.info["nchans"],C.c_float)
         lastread = self.info["nsamples"]%blocksize
         nreads = (self.info["nsamples"]-lastread)/blocksize
         for ii in xrange(nreads):
+            sys.stdout.write("%d%%\r"%(100*ii/nreads))
+            sys.stdout.flush()
             self.f.cread(readBuffer,blocksize*self.info["nchans"])
-            if time: lib.getTim(readBuffer.Cbuffer,timBuffer.Cbuffer,
+            if time: getTim(readBuffer.Cbuffer,timBuffer.Cbuffer,
                                 self.info["nchans"],blocksize,ii*blocksize)
-            if freq: lib.getBpass(readBuffer.Cbuffer,bpassBuffer.Cbuffer,
+            if freq: getBpass(readBuffer.Cbuffer,bpassBuffer.Cbuffer,
                                   self.info["nchans"],blocksize)
 
         self.f.cread(readBuffer,lastread*self.info["nchans"])
-        if time: lib.getTim(readBuffer.Cbuffer,timBuffer.Cbuffer,
+        if time: getTim(readBuffer.Cbuffer,timBuffer.Cbuffer,
                             self.info["nchans"],lastread,(ii+1)*blocksize)
-        if freq: lib.getBpass(readBuffer.Cbuffer,bpassBuffer.Cbuffer,
+        if freq: getBpass(readBuffer.Cbuffer,bpassBuffer.Cbuffer,
                               self.info["nchans"],lastread)
 
         if time and freq: return(BandpassFromBuffer(self.info.copy(),bpassBuffer),
@@ -93,24 +103,33 @@ class Filterbank(Header):
         """
 
         chanDelays = self.getDMdelays(dm)
-        delayPointer = arrayAsPointer(chanDelays)
+        delayPointer = arrayToPointer(chanDelays)
         maxDelay = int(chanDelays.max())
         gulp = max(2*maxDelay,gulp)
         timLen = self.info["nsamples"]-maxDelay
 
         self.f.seek(self.hdrlen)
         timBuffer = Buffer(timLen,C.c_float)
-        readBuffer = Buffer(self.info["nchans"]*gulp,C.c_ubyte)
+
+        if self.info["nbits"] == 32:
+            readBuffer = Buffer(self.info["nchans"]*gulp,C.c_float)
+            dedisperser = lib.dedisperse32
+        elif self.info["nbits"] == 8:
+            readBuffer = Buffer(self.info["nchans"]*gulp,C.c_ubyte)
+            dedisperser = lib.dedisperse8
+
         nreads = int(self.info["nsamples"]/(gulp-maxDelay))
         lastread = self.info["nsamples"]%(gulp-maxDelay)
         
         for ii in xrange(nreads):
+            sys.stdout.write("%d%%\r"%(100*ii/nreads))
+            sys.stdout.flush()
             self.f.cread(readBuffer,gulp*self.info["nchans"])
-            lib.dedisperse(readBuffer.Cbuffer,timBuffer.Cbuffer,delayPointer,
+            dedisperser(readBuffer.Cbuffer,timBuffer.Cbuffer,delayPointer,
                            maxDelay, self.info["nchans"], gulp, ii*(gulp-maxDelay))
             self.f.seek(self.hdrlen+(self.info["nchans"]*(ii+1)*(gulp-maxDelay)))
         self.f.cread(readBuffer,lastread*self.info["nchans"])
-        lib.dedisperse(readBuffer.Cbuffer,timBuffer.Cbuffer,delayPointer,
+        dedisperser(readBuffer.Cbuffer,timBuffer.Cbuffer,delayPointer,
                        maxDelay, self.info["nchans"], lastread, (ii+1)*(gulp-maxDelay))
         timInfo = self.info.copy()
         timInfo["nsamples"] = timLen
@@ -200,11 +219,75 @@ class Filterbank(Header):
         return FoldedData(parentInfo,foldBuffer,countBuffer,
                           period,dm,nbins,nints,nbands)
         
+    
+    def chanStats(self,window=10001):        
 
+        self.f.seek(self.hdrlen)
+        gulp = 10*window
+        lastread = self.info["nsamples"]%(gulp-window)
+        nreads = (self.info["nsamples"]-lastread)/(gulp-window)
+        
+
+        if self.info["nbits"] == 32:
+            readBuffer = Buffer(self.info["nchans"]*gulp,C.c_float)
+            writeBuffer = Buffer(self.info["nchans"]*gulp,C.c_float)
+            maximaBuffer = Buffer(self.info["nchans"],C.c_float)
+            minimaBuffer = Buffer(self.info["nchans"],C.c_float)
+            getStats = lib.getStats32
+        elif self.info["nbits"] == 8:
+            readBuffer = Buffer(self.info["nchans"]*gulp,C.c_ubyte)
+            writeBuffer = Buffer(self.info["nchans"]*gulp,C.c_ubyte)
+            maximaBuffer = Buffer(self.info["nchans"],C.c_ubyte)
+            minimaBuffer = Buffer(self.info["nchans"],C.c_ubyte)
+            getStats = lib.getStats8
+
+        meansBuffer = Buffer(self.info["nchans"],C.c_double)
+        bpassBuffer = Buffer(self.info["nchans"],C.c_double)
+        stdevBuffer = Buffer(self.info["nchans"],C.c_double)
+
+        outFile = File("%s_RM.fil"%(self.basename),"w+")
+        outFile.write(self.write_header())
+        infoFile = File("%s_RM.info"%(self.basename),"w+")
+        
+        for ii in xrange(nreads):
+            sys.stdout.write("%d%%\r"%(100*ii/nreads))
+            sys.stdout.flush()
+            self.f.cread(readBuffer,gulp*self.info["nchans"])
+            
+            getStats(readBuffer.Cbuffer, meansBuffer.Cbuffer, bpassBuffer.Cbuffer, stdevBuffer.Cbuffer,
+                     writeBuffer.Cbuffer,maximaBuffer.Cbuffer,minimaBuffer.Cbuffer,self.info["nchans"],gulp,window,ii)
+            
+            if ii == 0:
+                outFile.cwrite(writeBuffer)
+            else:
+                outFile.cwrite(writeBuffer, nunits=(gulp-window)*self.info["nchans"],
+                               offset=self.info["nchans"]*window)
+
+            self.f.seek(self.hdrlen+4*self.info["nchans"]*((ii+1)*(gulp-window)))
+            
+        self.f.cread(readBuffer,lastread*self.info["nchans"])
+        getStats(readBuffer.Cbuffer, meansBuffer.Cbuffer, bpassBuffer.Cbuffer, stdevBuffer.Cbuffer,
+                 writeBuffer.Cbuffer,maximaBuffer.Cbuffer,minimaBuffer.Cbuffer,self.info["nchans"],lastread,window,ii)
+
+        outFile.cwrite(writeBuffer, nunits=(lastread-window)*self.info["nchans"],
+                       offset=self.info["nchans"]*window)
+        stdevBuffer.Ndarray = numpy.sqrt(stdevBuffer.Ndarray/self.info["nsamples"])
+        
+        info = {"sigma":stdevBuffer.Ndarray,
+                "bandpass":bpassBuffer.Ndarray,
+                "maxima":maximaBuffer.Ndarray,
+                "minima":minimaBuffer.Ndarray}
+        cPickle.dump(info,infoFile)
+
+        
 class MultiFilterbank:
     def __init__(self,files):
         self.files = files
         self.filterbanks = [Filterbank(filename) for filename in files]
+
+
+
+
         
 from TimeSeries import TimeSeries
 from FoldedData import FoldedData

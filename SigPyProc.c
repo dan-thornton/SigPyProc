@@ -2,17 +2,25 @@
 #include <stdlib.h>
 #include <fftw3.h>
 #include <time.h>
+#include <math.h>
 #include <Python.h>
  
 /*----------------------------------------------------------------------------*/
 
-void testarray(unsigned char* x,int lenx){
-
+void testFloat(float* data,int len){
   int ii;
-  for (ii=0;ii<lenx;ii++){
-    printf("%d/%d\t",x[ii],ii);
+  for (ii=0;ii<len;ii++){
+    printf("%f\t",data[ii]);
+    fflush(stdout);
   }
+}
 
+void testDouble(double* data,int len){
+  int ii;
+  for (ii=0;ii<len;ii++){
+    printf("%f\t",data[ii]);
+    fflush(stdout);
+  }
 }
 
 FILE* cfile(PyObject* file){
@@ -79,8 +87,7 @@ void rfft(float* buffer,
 }
 
 
-void getTim(unsigned char* inbuffer,float* outbuffer,int nchans,int nsamps,int index){
-
+void getTim8(unsigned char* inbuffer,float* outbuffer,int nchans,int nsamps,int index){
   int ii,jj,val;
   for (ii=0;ii<nsamps;ii++){
     for (jj=0;jj<nchans;jj++){
@@ -89,8 +96,16 @@ void getTim(unsigned char* inbuffer,float* outbuffer,int nchans,int nsamps,int i
   }
 }
 
-void getBpass(unsigned char* inbuffer,float* outbuffer,int nchans,int nsamps){
+void getTim32(float* inbuffer,float* outbuffer,int nchans,int nsamps,int index){
+  int ii,jj,val;
+  for (ii=0;ii<nsamps;ii++){
+    for (jj=0;jj<nchans;jj++){
+      outbuffer[index+ii]+=inbuffer[(nchans*ii)+jj];
+    }
+  }
+}
 
+void getBpass8(unsigned char* inbuffer,float* outbuffer,int nchans,int nsamps){
   int ii,jj;
   for (ii=0;ii<nsamps;ii++){
     for (jj=0;jj<nchans;jj++){
@@ -99,7 +114,18 @@ void getBpass(unsigned char* inbuffer,float* outbuffer,int nchans,int nsamps){
   }
 }
 
-void dedisperse(unsigned char* inbuffer,
+void getBpass32(float* inbuffer,float* outbuffer,int nchans,int nsamps){
+  int ii,jj;
+  for (ii=0;ii<nsamps;ii++){
+    for (jj=0;jj<nchans;jj++){
+      outbuffer[jj]+=inbuffer[(nchans*ii)+jj];
+    }
+  }
+}
+
+
+
+void dedisperse8(unsigned char* inbuffer,
 		float* outbuffer,
 		int* delays,
 		long maxdelay,
@@ -115,6 +141,29 @@ void dedisperse(unsigned char* inbuffer,
     }
   }
 }
+
+void dedisperse32(float* inbuffer,
+		  float* outbuffer,
+		  int* delays,
+		  long maxdelay,
+		  int nchans,
+		  int nsamps,
+		  int index )
+{
+  int ii,jj;
+
+  for (ii=0;ii<(nsamps-maxdelay);ii++){
+    for (jj=0;jj<nchans;jj++){
+      outbuffer[index+ii] += inbuffer[(ii*nchans)+(delays[jj]*nchans)+jj];
+    }
+  }
+}
+
+
+
+
+
+
 
 void foldFil(unsigned char* inbuffer,
 	     float* foldbuffer,
@@ -175,6 +224,52 @@ void downsampleFil(FILE* infile,
       tempbuffer[ll] = 0;
     }
     fwrite(outbuffer,1,nchans/ffactor,outfile);
+  }
+}
+
+void getStats32(float* inbuffer,
+		double* rollingSum,
+		double* bandpass,
+		double* stdev,
+		float* outbuffer,
+		float* maxbuffer,
+		float* minbuffer,		
+		int nchans,
+		int nsamps,
+		int window,
+		int index)
+{
+
+  int ii,jj;
+
+  if (index == 0){
+    for (ii=0;ii<window;ii++){
+      for (jj=0;jj<nchans;jj++){
+	rollingSum[jj] += inbuffer[(ii*nchans)+jj];
+	bandpass[jj] += inbuffer[(ii*nchans)+jj];
+	outbuffer[(ii*nchans)+jj] = inbuffer[(ii*nchans)+jj] - (rollingSum[jj]/(ii+1));
+	stdev[jj] += pow(outbuffer[(ii*nchans)+jj],2);
+	if (outbuffer[(ii*nchans)+jj]>maxbuffer[jj])
+	  maxbuffer[jj] = outbuffer[(ii*nchans)+jj];
+	else if (outbuffer[(ii*nchans)+jj]<minbuffer[jj])
+	  minbuffer[jj] = outbuffer[(ii*nchans)+jj];
+      }
+    }
+  }
+
+
+  for (ii=window;ii<nsamps;ii++){
+    for (jj=0;jj<nchans;jj++){
+      rollingSum[jj] += inbuffer[(ii*nchans)+jj];
+      rollingSum[jj] -= inbuffer[((ii-window)*nchans)+jj];
+      bandpass[jj] += inbuffer[(ii*nchans)+jj];
+      outbuffer[(ii*nchans)+jj] = inbuffer[(ii*nchans)+jj] - (rollingSum[jj]/window);
+      stdev[jj] += pow(inbuffer[(ii*nchans)+jj]-(rollingSum[jj]/window),2);
+      if (outbuffer[(ii*nchans)+jj]>maxbuffer[jj])
+	maxbuffer[jj] = outbuffer[(ii*nchans)+jj];
+      else if (outbuffer[(ii*nchans)+jj]<minbuffer[jj])
+	minbuffer[jj] = outbuffer[(ii*nchans)+jj];
+    }
   }
 }
 

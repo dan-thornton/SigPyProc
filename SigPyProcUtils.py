@@ -78,7 +78,14 @@ class File(file):
             clib.fread(BufInst.Cbuffer,C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
         else:
             clib.fread(BufInst.Cbuffer,C.sizeof(BufInst.dtype),nunits,self.cfile)
-        
+
+    def cwrite(self,BufInst,nunits=None,offset=0):
+        offset *= C.sizeof(BufInst.dtype)
+        if nunits == None:
+            clib.fwrite(C.byref(BufInst.Cbuffer,offset),C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
+        else:
+            clib.fwrite(C.byref(BufInst.Cbuffer,offset),C.sizeof(BufInst.dtype),nunits,self.cfile)
+
     def __del__(self):
         """Close file when reference count drops to zero.
         """
