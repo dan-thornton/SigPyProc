@@ -243,4 +243,27 @@ class Header:
         return(array)
 
 
+class MultiHeader:
+    def __init__(self,files):
+        if not isinstance(files,list):
+            raise ValueError,"Bad value passed to MultiHeader.__init__()"
+
+        self.headers = [Header(filename) for filename in files]
+        self.info = {}
+        ref = self.headers[0]
+        for key in ref.info.keys():
+            if self.testAttribute(key):
+                self.info[key] = ref.info[key]
+                
+    def testAttribute(self,key,mode="same"):
+        if mode == "same":
+            return (len(set([h.info[key] for h in self.headers]))==1)
+        elif mode == "different":
+            return (len(set([h.info[key] for h in self.headers]))==len(self.headers))
+            
+            
+        
+            
+            
+        
                 

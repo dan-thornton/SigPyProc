@@ -40,7 +40,7 @@ class TimeSeries(Header):
     
         elif isinstance(parentInfo,str) and mallocBuffer == None:
             self._readTim()
-    
+            
 
     def _readTim(self):
         """Read time series from .tim file.
@@ -129,7 +129,6 @@ class MultiTimeSeries:
                                    self.tims[key].timBuffer.Cbuffer,mode="valid")
             self.lags[key] = corr.argmax()-window
         minlag = min(self.lags.values())
-        print minlag 
         for key in keys:
             self.lags[key] += abs(minlag)
              

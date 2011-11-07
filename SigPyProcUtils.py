@@ -17,34 +17,43 @@ class Buffer:
     \tsetBuffer -- memset buffer to a given value
     """
 
-    def __init__(self,nunits,dtype):
+    def __init__(self,nunits,dtype,dim=1):
         """Create new Buffer instance.
         
         Args:
         nunits -- number of units of size sizeof(dtype) in buffer
         dtype  -- ctypes type designation
         """
+        self.dim = dim
         self.dtype = dtype
         self.nunits = int(nunits)
         self.nbytes = C.sizeof(self.dtype)*self.nunits
-        plan = self.nunits * self.dtype
+        if dim == 1:
+            plan = (self.nunits * self.dtype)
+        else:
+            plan = (self.nunits * self.dtype) * self.dim
         self.Cbuffer = plan()
         self.Ndarray = numpy.ctypeslib.as_array(self.Cbuffer) 
-
+        
     def setBuffer(self,value):
         """Set buffer to a value.
 
         Args:
         value -- value (of type dtype) to set buffer to
         """
-        clib.memset(self.Cbuffer,value,self.nbytes)
+        if self.dim > 1:
+            for ii in xrange(self.dim):
+                clib.memset(self.Cbuffer[ii],value,self.nbytes)
+        else:
+            clib.memset(self.Cbuffer,value,self.nbytes) 
 
     def __del__(self):
         """Clean up the buffer.
         
         Uses the free method when the reference count of the malloc buffer reaches 0.
         """
-        print "Freeing %d * %s byte buffer"%(self.nunits,self.dtype.__name__)
+        print "Freeing %d * %s byte buffer"%(self.nunits*self.dim,self.dtype.__name__)
+
 
 
 class File(file):
@@ -73,18 +82,30 @@ class File(file):
         self.cfile = lib.cfile(self)
         self.filename = filename
 
-    def cread(self,BufInst,nunits=None):
-        if nunits == None:
-            clib.fread(BufInst.Cbuffer,C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
+    def cread(self,BufInst,nunits=None,n=0):
+        if BufInst.dim == 1:
+            if nunits == None:
+                clib.fread(BufInst.Cbuffer,C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
+            else:
+                clib.fread(BufInst.Cbuffer,C.sizeof(BufInst.dtype),nunits,self.cfile)
         else:
-            clib.fread(BufInst.Cbuffer,C.sizeof(BufInst.dtype),nunits,self.cfile)
+            if nunits == None:  
+                clib.fread(BufInst.Cbuffer[n],C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
+            else:
+                clib.fread(BufInst.Cbuffer[n],C.sizeof(BufInst.dtype),nunits,self.cfile)
 
-    def cwrite(self,BufInst,nunits=None,offset=0):
+    def cwrite(self,BufInst,nunits=None,offset=0,n=0):
         offset *= C.sizeof(BufInst.dtype)
-        if nunits == None:
-            clib.fwrite(C.byref(BufInst.Cbuffer,offset),C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
+        if BufInst.dim == 1:
+            if nunits == None:
+                clib.fwrite(C.byref(BufInst.Cbuffer,offset),C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
+            else:
+                clib.fwrite(C.byref(BufInst.Cbuffer,offset),C.sizeof(BufInst.dtype),nunits,self.cfile)
         else:
-            clib.fwrite(C.byref(BufInst.Cbuffer,offset),C.sizeof(BufInst.dtype),nunits,self.cfile)
+            if nunits == None:
+                clib.fwrite(C.byref(BufInst.Cbuffer[n],offset),C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
+            else:
+                clib.fwrite(C.byref(BufInst.Cbuffer[n],offset),C.sizeof(BufInst.dtype),nunits,self.cfile)
 
     def __del__(self):
         """Close file when reference count drops to zero.
