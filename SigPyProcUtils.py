@@ -70,7 +70,7 @@ class File(file):
     \tall the methods of file 
     """    
     
-    def __init__(self,filename,mode):
+    def __init__(self,filename,mode,nbits=8):
         """Create new File instance
 
         Args:
@@ -81,18 +81,22 @@ class File(file):
         lib.cfile.argtypes = [C.py_object]
         self.cfile = lib.cfile(self)
         self.filename = filename
+        if nbits in [1,2,4]:
+            self.bitfact = nbits/8
+        else:
+            self.bitfact = 1
 
     def cread(self,BufInst,nunits=None,n=0):
         if BufInst.dim == 1:
             if nunits == None:
                 clib.fread(BufInst.Cbuffer,C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
             else:
-                clib.fread(BufInst.Cbuffer,C.sizeof(BufInst.dtype),nunits,self.cfile)
+                clib.fread(BufInst.Cbuffer,C.sizeof(BufInst.dtype),int(nunits*self.bitfact),self.cfile)
         else:
             if nunits == None:  
                 clib.fread(BufInst.Cbuffer[n],C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
             else:
-                clib.fread(BufInst.Cbuffer[n],C.sizeof(BufInst.dtype),nunits,self.cfile)
+                clib.fread(BufInst.Cbuffer[n],C.sizeof(BufInst.dtype),int(nunits*self.bitfact),self.cfile)
 
     def cwrite(self,BufInst,nunits=None,offset=0,n=0):
         offset *= C.sizeof(BufInst.dtype)
@@ -100,13 +104,14 @@ class File(file):
             if nunits == None:
                 clib.fwrite(C.byref(BufInst.Cbuffer,offset),C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
             else:
-                clib.fwrite(C.byref(BufInst.Cbuffer,offset),C.sizeof(BufInst.dtype),nunits,self.cfile)
+                clib.fwrite(C.byref(BufInst.Cbuffer,offset),C.sizeof(BufInst.dtype),int(nunits*self.bitfact),self.cfile)
         else:
             if nunits == None:
                 clib.fwrite(C.byref(BufInst.Cbuffer[n],offset),C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
             else:
                 print offset,nunits
-                clib.fwrite(C.byref(BufInst.Cbuffer[n],offset),C.sizeof(BufInst.dtype),nunits,self.cfile)
+                clib.fwrite(C.byref(BufInst.Cbuffer[n],offset),C.sizeof(BufInst.dtype),int(nunits*self.bitfact),self.cfile)
+                
 
     def __del__(self):
         """Close file when reference count drops to zero.

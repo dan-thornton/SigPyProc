@@ -29,7 +29,7 @@ class Filterbank(Header):
         filename -- string containing name of file to process
         """
         Header.__init__(self,filename)
-        self.f = File(filename,"r")
+        self.f = File(filename,"r",nbits=self.info["nbits"])
         infofile = "%s.info"%(self.basename)
         if os.path.isfile("%s.info"%(self.basename)):
             try:
@@ -168,8 +168,6 @@ class Filterbank(Header):
         return FoldedData(parentInfo,foldBuffer,countBuffer,
                           period,dm,nbins,nints,nbands)
         
-        
-    
     def getStatistics(self,window=10001):        
 
         self.f.seek(self.hdrlen)
@@ -337,8 +335,11 @@ class ReadPlan:
         skipback = abs(skipback)
         if skipback >= readsamps:
             raise ValueError,"readsamps must be > skipback value"
-        nreads = self.nsamps//(readsamps-skipback)-1
-        lastread = (self.nsamps%(readsamps-skipback))+skipback
+        nreads = self.nsamps//(readsamps-skipback)
+        lastread = self.nsamps-(nreads*(readsamps-skipback))
+        if lastread<skipback:
+            lastread += skipback
+            nreads -= 1
         self.blocks = [(ii,readsamps*self.nchans,-skipback*self.nchans) for ii in range(nreads)]
         self.blocks.append((nreads,lastread*self.nchans,0))
         self.nreads = nreads+1
@@ -358,7 +359,7 @@ class ReadPlan:
 
     def makePass(self):
         for ii,block,skip in self.blocks:
-            self.f.cread(self.readBuffer,block)
+            self.f.cread(self.readBuffer,nunits=block)
             self.f.seek(skip,os.SEEK_CUR)
             yield block/self.nchans,ii
 
