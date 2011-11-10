@@ -128,13 +128,13 @@ void getBpass32(float* inbuffer,float* outbuffer,int nchans,int nsamps){
 void dedisperse8(unsigned char* inbuffer,
 		float* outbuffer,
 		int* delays,
-		int maxdelay,
+		long maxdelay,
 		int nchans,
 		int nsamps,
 		int index )
 {
   int ii,jj;
-  
+
   for (ii=0;ii<(nsamps-maxdelay);ii++){
     for (jj=0;jj<nchans;jj++){
       outbuffer[index+ii] += inbuffer[(ii*nchans)+(delays[jj]*nchans)+jj];
@@ -256,7 +256,6 @@ void getStats32(float* inbuffer,
       }
     }
   }
-
 
   for (ii=window;ii<nsamps;ii++){
     for (jj=0;jj<nchans;jj++){

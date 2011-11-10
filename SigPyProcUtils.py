@@ -105,6 +105,7 @@ class File(file):
             if nunits == None:
                 clib.fwrite(C.byref(BufInst.Cbuffer[n],offset),C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
             else:
+                print offset,nunits
                 clib.fwrite(C.byref(BufInst.Cbuffer[n],offset),C.sizeof(BufInst.dtype),nunits,self.cfile)
 
     def __del__(self):
