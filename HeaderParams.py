@@ -125,3 +125,14 @@ nptypes_to_ctypes = {"|b1":C.c_bool,
                      "<u8":C.c_ulong,
                      "<f4":C.c_float,
                      "<f8":C.c_double}
+
+ctypes_to_nptypes = dict(zip(nptypes_to_ctypes.values(), nptypes_to_ctypes.keys())) 
+
+nbits_to_ctypes = {1:C.c_ubyte,
+                   2:C.c_ubyte,
+                   6:C.c_ubyte,
+                   8:C.c_ubyte,
+                   16:C.c_short,
+                   32:C.c_float}
+
+ctypes_to_nbits = dict(zip(nbits_to_ctypes.values(), nbits_to_ctypes.keys())) 

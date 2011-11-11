@@ -25,6 +25,8 @@ class Header:
         self.original_header = self.header.copy()
         self.info = {}
         self._get_info()
+        self.ctype = conf.nbits_to_ctypes[self.info["nbits"]]
+        self.dtype = conf.ctypes_to_nptypes[self.ctype]
 
     def modify_header(self,key,value):
         if key in conf.header_keys.keys():
@@ -190,7 +192,7 @@ class Header:
                         key,struct.pack('b',value)])
     def _get_info(self):
         
-        for key,val in zip(self.header.keys(),self.header.values()):
+        for key,val in self.header.items():
             self.info[key] = val
         
         self.info['orig_hdrlen']    = self.hdrlen

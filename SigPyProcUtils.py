@@ -17,7 +17,7 @@ class Buffer:
     \tsetBuffer -- memset buffer to a given value
     """
 
-    def __init__(self,nunits,dtype,dim=1):
+    def __init__(self,nunits,ctype,dim=1):
         """Create new Buffer instance.
         
         Args:
@@ -25,13 +25,13 @@ class Buffer:
         dtype  -- ctypes type designation
         """
         self.dim = dim
-        self.dtype = dtype
+        self.ctype = ctype
         self.nunits = int(nunits)
-        self.nbytes = C.sizeof(self.dtype)*self.nunits
+        self.nbytes = C.sizeof(self.ctype)*self.nunits
         if dim == 1:
-            plan = (self.nunits * self.dtype)
+            plan = (self.nunits * self.ctype)
         else:
-            plan = (self.nunits * self.dtype) * self.dim
+            plan = (self.nunits * self.ctype) * self.dim
         self.Cbuffer = plan()
         self.Ndarray = numpy.ctypeslib.as_array(self.Cbuffer) 
         
@@ -52,7 +52,7 @@ class Buffer:
         
         Uses the free method when the reference count of the malloc buffer reaches 0.
         """
-        print "Freeing %d * %s byte buffer"%(self.nunits*self.dim,self.dtype.__name__)
+        print "Freeing %d * %s byte buffer"%(self.nunits*self.dim,self.ctype.__name__)
 
 
 
@@ -89,28 +89,28 @@ class File(file):
     def cread(self,BufInst,nunits=None,n=0):
         if BufInst.dim == 1:
             if nunits == None:
-                clib.fread(BufInst.Cbuffer,C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
+                clib.fread(BufInst.Cbuffer,C.sizeof(BufInst.ctype),BufInst.nunits,self.cfile)
             else:
-                clib.fread(BufInst.Cbuffer,C.sizeof(BufInst.dtype),int(nunits*self.bitfact),self.cfile)
+                clib.fread(BufInst.Cbuffer,C.sizeof(BufInst.ctype),int(nunits*self.bitfact),self.cfile)
         else:
             if nunits == None:  
-                clib.fread(BufInst.Cbuffer[n],C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
+                clib.fread(BufInst.Cbuffer[n],C.sizeof(BufInst.ctype),BufInst.nunits,self.cfile)
             else:
-                clib.fread(BufInst.Cbuffer[n],C.sizeof(BufInst.dtype),int(nunits*self.bitfact),self.cfile)
+                clib.fread(BufInst.Cbuffer[n],C.sizeof(BufInst.ctype),int(nunits*self.bitfact),self.cfile)
 
     def cwrite(self,BufInst,nunits=None,offset=0,n=0):
-        offset *= C.sizeof(BufInst.dtype)
+        offset *= C.sizeof(BufInst.ctype)
         if BufInst.dim == 1:
             if nunits == None:
-                clib.fwrite(C.byref(BufInst.Cbuffer,offset),C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
+                clib.fwrite(C.byref(BufInst.Cbuffer,offset),C.sizeof(BufInst.ctype),BufInst.nunits,self.cfile)
             else:
-                clib.fwrite(C.byref(BufInst.Cbuffer,offset),C.sizeof(BufInst.dtype),int(nunits*self.bitfact),self.cfile)
+                clib.fwrite(C.byref(BufInst.Cbuffer,offset),C.sizeof(BufInst.ctype),int(nunits*self.bitfact),self.cfile)
         else:
             if nunits == None:
-                clib.fwrite(C.byref(BufInst.Cbuffer[n],offset),C.sizeof(BufInst.dtype),BufInst.nunits,self.cfile)
+                clib.fwrite(C.byref(BufInst.Cbuffer[n],offset),C.sizeof(BufInst.ctype),BufInst.nunits,self.cfile)
             else:
                 print offset,nunits
-                clib.fwrite(C.byref(BufInst.Cbuffer[n],offset),C.sizeof(BufInst.dtype),int(nunits*self.bitfact),self.cfile)
+                clib.fwrite(C.byref(BufInst.Cbuffer[n],offset),C.sizeof(BufInst.ctype),int(nunits*self.bitfact),self.cfile)
                 
 
     def __del__(self):
@@ -176,5 +176,5 @@ def arrayToPointer(array):
     if not np_to_c.get(array.dtype.str) == None:
         return array.ctypes.data_as(C.POINTER(np_to_c[array.dtype.str]))
     else:
-        raise KeyError,"Key '%s' not found in ndtypes_to_ctypes conversion dictionary in HeaderParams module"
+        raise KeyError,"Key '%s' not found in nptypes_to_ctypes conversion dictionary in HeaderParams module"
 
