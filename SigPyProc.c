@@ -7,6 +7,21 @@
  
 /*----------------------------------------------------------------------------*/
 
+void testFloat(float* data,int len){
+  int ii;
+  for (ii=0;ii<len;ii++){
+    printf("%f\t",data[ii]);
+    fflush(stdout);
+  }
+}
+
+void testDouble(double* data,int len){
+  int ii;
+  for (ii=0;ii<len;ii++){
+    printf("%f\t",data[ii]);
+    fflush(stdout);
+  }
+}
 
 FILE* cfile(PyObject* file){
   FILE* cfile = PyFile_AsFile(file);
@@ -70,6 +85,7 @@ void rfft(float* buffer,
   fftwf_execute(plan);
   fftwf_destroy_plan(plan);
 }
+
 
 void getTim8(unsigned char* inbuffer,float* outbuffer,int nchans,int nsamps,int index){
   int ii,jj,val;
@@ -142,6 +158,12 @@ void dedisperse32(float* inbuffer,
     }
   }
 }
+
+
+
+
+
+
 
 void foldFil(unsigned char* inbuffer,
 	     float* foldbuffer,

@@ -132,9 +132,12 @@ class Filterbank(Header):
         if not self.info["nchans"]%ffactor == 0:
             raise ValueError,"Bad frequency factor given"
         self.downsample_header(tfactor=tfactor,ffactor=ffactor)
-        outFile = File(filename,"w+")
-        outFile.write(self.write_header())
-        self.reset_header()
+
+        outFile = self.prepOutfile(filename,
+                                   (("tsamp",self.info["tsamp"]*tfactor),
+                                    ("nchans",self.info["nchans"]/ffactor),
+                                    ("foff",self.info["foff"]*ffactor)))
+
         readBuffer = Buffer(tfactor*self.info["nchans"],self.ctype)
         writeBuffer = Buffer(self.info["nchans"]/ffactor,self.ctype)
         tempBuffer = Buffer(self.info["nchans"]/ffactor,C.c_int)

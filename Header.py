@@ -42,15 +42,6 @@ class Header:
         self.header = self.original_header.copy()
         self._get_info()
 
-    def dedisperse_header(self,DM,nsamples):
-        self.modify_header("refdm",DM)
-        self.modify_header("nsamples",nsamples)
-        
-    def downsample_header(self,tfactor=1,ffactor=1):
-        self.modify_header("tsamp",self.header["tsamp"]*tfactor)
-        self.modify_header("nchans",self.header["nchans"]/ffactor)
-        self.modify_header("foff",self.header["foff"]*ffactor)
-        
     def add_to_mjd(self,time_in_secs):
         if not self.header['tstart'] == 0.0:
             val = self.header['tstart']+(time_in_secs/86400.)
