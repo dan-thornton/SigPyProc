@@ -2,7 +2,6 @@ import os,numpy,pylab,sys,cPickle,time
 import ctypes as C
 from Header import Header,MultiHeader
 from SigPyProcUtils import File,Buffer,arrayToPointer
-lib = C.CDLL("libSigPyProc.so")
 
 
 class Filterbank(Header):
@@ -13,7 +12,7 @@ class Filterbank(Header):
 
     Methods
     -------
-    \tcollapse     -- Collapse filterbank in frequency and/or time                      (ie. DM0 time series and/or bandpass)
+    \tcollapse     -- Collapse filterbank in frequency and/or time
     \tdedisperse   -- Simple dedispersion algorithm (fixed some sigproc bugs)
     \tdownsample   -- Downsample filterbank in frequency and/or time
     """
@@ -34,6 +33,11 @@ class Filterbank(Header):
                 self.stats = None
         else:
             self.stats = None
+        if self.ctype == C.c_float:
+            self.lib = C.CDLL("libSigPyProc32.so")
+        else:
+            self.lib = C.CDLL("libSigPyProc8.so")
+
 
     def getDMdelays(self,dm):
         """For a given dispersion measure return delay for each channel
@@ -58,17 +62,7 @@ class Filterbank(Header):
         passPlan = ReadPlan(self,readBuffer)
         passPlan.readOnce(blocksize)
         for nsamps,ii in passPlan.makePass():
-            lib.getTim8(readBuffer.Cbuffer,timBuffer.Cbuffer,
-                        self.info["nchans"],nsamps,ii*blocksize)
-        return TimeSeries(self.info.copy(),timBuffer)
-
-    def collapse32(self,blocksize=512):
-        readBuffer = Buffer(blocksize*self.info["nchans"],self.ctype)
-        timBuffer = Buffer(self.info["nsamples"],C.c_float)
-        passPlan = ReadPlan(self,readBuffer)
-        passPlan.readOnce(blocksize)
-        for nsamps,ii in passPlan.makePass():
-            lib.getTim32(readBuffer.Cbuffer,timBuffer.Cbuffer,
+            self.lib.getTim(readBuffer.Cbuffer,timBuffer.Cbuffer,
                         self.info["nchans"],nsamps,ii*blocksize)
         return TimeSeries(self.info.copy(),timBuffer)
 
@@ -85,7 +79,7 @@ class Filterbank(Header):
         passPlan = ReadPlan(self,readBuffer)
         passPlan.readOnce(blocksize)
         for nsamps,ii in passPlan.makePass():
-            lib.getBpass8(readBuffer.Cbuffer,bpassBuffer.Cbuffer,
+            self.lib.getBpass(readBuffer.Cbuffer,bpassBuffer.Cbuffer,
                           self.info["nchans"],blocksize)
         return BandpassFromBuffer(self.info.copy(),bpassBuffer)
 
@@ -109,8 +103,8 @@ class Filterbank(Header):
         passPlan = ReadPlan(self,readBuffer)
         passPlan.readSkipBack(gulp,maxDelay)
         for nsamps,ii in passPlan.makePass():
-            lib.dedisperse8(readBuffer.Cbuffer,timBuffer.Cbuffer,delayPointer,
-                            maxDelay, self.info["nchans"], nsamps, ii*(gulp-maxDelay))
+            self.lib.dedisperse(readBuffer.Cbuffer,timBuffer.Cbuffer,delayPointer,
+                                maxDelay, self.info["nchans"], nsamps, ii*(gulp-maxDelay))
         timInfo = self.info.copy()
         timInfo["nsamples"] = timLen
         timInfo["refdm"] = dm
@@ -141,7 +135,7 @@ class Filterbank(Header):
         readBuffer = Buffer(tfactor*self.info["nchans"],self.ctype)
         writeBuffer = Buffer(self.info["nchans"]/ffactor,self.ctype)
         tempBuffer = Buffer(self.info["nchans"]/ffactor,C.c_int)
-        lib.downsampleFil(self.f.f, outFile.f, readBuffer.Cbuffer,
+        self.lib.downsampleFil(self.f.f, outFile.f, readBuffer.Cbuffer,
                           writeBuffer.Cbuffer,tempBuffer.Cbuffer,
                           tfactor, ffactor, self.info["nchans"],
                           self.info["nsamples"])
@@ -168,7 +162,7 @@ class Filterbank(Header):
         passPlan = ReadPlan(self,readBuffer)
         passPlan.readSkipBack(gulp,maxDelay)
         for nsamps,ii in passPlan.makePass():
-            lib.foldFil(readBuffer.Cbuffer, foldBuffer.Cbuffer, countBuffer.Cbuffer,
+            self.lib.foldFil(readBuffer.Cbuffer, foldBuffer.Cbuffer, countBuffer.Cbuffer,
                         delayPointer, maxDelay, C.c_double(self.info["tsamp"]),
                         C.c_double(period), gulp, self.info["nchans"], nbins,
                         nints, nbands, ii*(gulp-maxDelay))
@@ -205,9 +199,9 @@ class Filterbank(Header):
             flagFile = self.prepOutfile("%s_8bit_mask.fil"%(self.basename),changes)
 
         for nsamps,ii in passPlan.makePass():
-            lib.dropBits32to8(readBuffer.Cbuffer,writeBuffer.Cbuffer,
-                              arrayToPointer(chanFactor),arrayToPointer(chanPlus),
-                              nsamps,self.info["nchans"])
+            self.lib.to8bit(readBuffer.Cbuffer,writeBuffer.Cbuffer,
+                            arrayToPointer(chanFactor),arrayToPointer(chanPlus),
+                            nsamps,self.info["nchans"])
             outFile.cwrite(writeBuffer)
             if flag is not 0:
                 lib.flagBlock(readBuffer.Cbuffer,flagBuffer.Cbuffer,
@@ -231,14 +225,12 @@ class Filterbank(Header):
         bpassBuffer = Buffer(self.info["nchans"],C.c_float)
         stdevBuffer = Buffer(self.info["nchans"],C.c_float)
 
-        outFile = File("%s_RM.fil"%(self.basename),"w+")
-        outFile.write(self.write_header())
-
+        outFile = self.prepOutfile("%s_RM.fil"%(self.basename))
         passPlan = ReadPlan(self,readBuffer)
         passPlan.readSkipBack(gulp,window)
 
         for nsamps,ii in passPlan.makePass():
-            lib.getStats32(readBuffer.Cbuffer, meansBuffer.Cbuffer,
+            self.lib.getStats(readBuffer.Cbuffer, meansBuffer.Cbuffer,
                      bpassBuffer.Cbuffer, stdevBuffer.Cbuffer,
                      writeBuffer.Cbuffer,maximaBuffer.Cbuffer,
                      minimaBuffer.Cbuffer,self.info["nchans"],nsamps,window,ii)
@@ -275,17 +267,18 @@ class Filterbank(Header):
 
 
 class ReadPlan:
-    def __init__(self,ObjInst,readBuffer):
+    def __init__(self,ObjInst,readBuffer,multi=False):
         self.I = ObjInst
-        self.f = self.I.f
+        self.multi = multi
         self.readBuffer = readBuffer
-        self.f.seek(self.I.hdrlen)
-        self.nsamps = self.I.info["nsamples"]
-        self.nchans = self.I.info["nchans"]
-        self.nreads = 0
-        self.blocks = []
-        self.dtypesize = C.sizeof(self.I.ctype)
-
+        if self.multi:
+            self.nfiles = ObjInst.nfiles
+            self.fils = [inst for inst in self.I.filterbanks]
+            for inst in self.fils: inst.f.seek(inst.hdrlen)
+        else:
+            self.f = self.I.f
+            self.f.seek(self.I.hdrlen)
+        
     def readOnce(self,readsamps=512):
         nreads = self.nsamps//readsamps
         lastread = self.nsamps%readsamps
@@ -323,11 +316,15 @@ class ReadPlan:
         for ii,block,skip in self.blocks:
             sys.stdout.write("Percentage complete: %d%%\r"%(100*ii/self.nreads))
             sys.stdout.flush()
-            self.f.cread(self.readBuffer,nunits=block)
-            self.f.seek(skip*self.dtypesize,os.SEEK_CUR)
+            if self.multi:
+                for jj in range(self.nfiles):
+                    self.fils[jj].f.cread(self.readBuffer,nunits=block,n=jj)
+                    self.f.seek(skip*self.dtypesize,os.SEEK_CUR)
+            else:
+                self.f.cread(self.readBuffer,nunits=block)
+                self.f.seek(skip*self.dtypesize,os.SEEK_CUR)
             yield block/self.nchans,ii
         print "Execution time: %f seconds     \n"%(time.time()-start)
-
               
 class MultiFilterbank(MultiHeader):
     def __init__(self,files):
@@ -342,38 +339,36 @@ class MultiFilterbank(MultiHeader):
             zeroDMs.append(fil.collapse(freq=False))
         zeroDMs.findLags()
         self.lags = numpy.array([zeroDMs.lags[fil.info["filename"]] for fil in self.filterbanks])
+        self.lags*=self.info["nchans"]
         return zeroDMs,self.lags
 
+    def sumPols(self):
+        outFile = self.filterbanks[0].prepOutfile("SummedPols.fil")
+        readBuffers = Buffer(gulp*self.info["nchans"],self.ctype,dim=2)
+        writeBuffer = Buffer(gulp*self.info["nchans"],self.ctype)
+        passPlan = ReadPlan(self,readBuffers,multi=True)
+        passPlan.readOnce()
+        for nsamps,ii in passPlan.makePass():
+            lib.sumPols(readBuffers.Cbuffer,writeBuffer.Cbuffer,nsamps,self.info["nchans"])
+            outFile.cwrite(writeBuffer)
+        return Filterbank(outFile)
+        
     def genMBmask(self,gulp=512,threshold=4):
-        outFile = File("MBmask.fil","w+")
-        outFile.write(self.headers[0].write_header())
+        outFile = self.filterbanks[0].prepOutfile("MBmask.fil")
         clags = Buffer(self.lags.shape[0],C.c_int)
         clags.Ndarray = self.lags
+
         for fil,offset in zip(self.filterbanks,self.lags):
             fil.f.seek(fil.hdrlen+offset)
         minlen = min([ fil.info["nsamples"]-offset for fil,offset in zip(self.filterbanks,self.lags)])
-        
         readBuffers = Buffer(gulp*self.info["nchans"],C.c_ubyte,dim=self.nfiles)
         writeBuffer = Buffer(gulp*self.info["nchans"],C.c_ubyte)
-        lastread = int(minlen%gulp)
-        nreads = int(minlen//gulp)
-        
-        for ii in xrange(nreads):
-            sys.stdout.write("%d%%\r"%(100*ii/nreads))
-            sys.stdout.flush()
-            for jj,fil in enumerate(self.filterbanks):
-                fil.f.cread(readBuffers,n=jj)
-                
-            lib.genMBmask(readBuffers.Cbuffer,writeBuffer.Cbuffer,
-                          threshold,self.nfiles,gulp,self.info["nchans"])
-            outFile.cwrite(writeBuffer)
-
-        for ii,fil in enumerate(self.filterbanks):
-            fil.f.cread(readBuffers,nunits=lastread*self.info["nchans"],n=ii)
-
-        lib.genMBmask(readBuffers.Cbuffer,writeBuffer.Cbuffer,
-                      threshold,self.nfiles,lastread,self.info["nchans"])
-        outFile.cwrite(writeBuffer,lastread*self.info["nchans"])
+        passPlan = ReadPlan(self,readBuffers,multi=True)
+        passPlan.readOnce()
+        for nsamps,ii in passPlan.makePass():
+            self.lib.genMBmask(readBuffers.Cbuffer,writeBuffer.Cbuffer,
+                               threshold,self.nfiles,nsamps,self.info["nchans"])
+            outFile.cwrite(writeBuffer,nsamps*self.info["nchans"])
 
                 
 from TimeSeries import TimeSeries,MultiTimeSeries

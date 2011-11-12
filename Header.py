@@ -25,8 +25,6 @@ class Header:
         self.original_header = self.header.copy()
         self.info = {}
         self._get_info()
-        self.ctype = conf.nbits_to_ctypes[self.info["nbits"]]
-        self.dtype = conf.ctypes_to_nptypes[self.ctype]
 
     def modify_header(self,key,value):
         if key in conf.header_keys.keys():
@@ -196,6 +194,12 @@ class Header:
             self.info['filename']   = self.file
             self.info['nsamples']   = ((os.path.getsize(self.file)-self.hdrlen)
                                        /self.header['nchans'])*8/self.header['nbits']
+
+        self.ctype = conf.nbits_to_ctypes[self.info["nbits"]]
+        self.dtype = conf.ctypes_to_nptypes[self.ctype]
+        self.info['ctype'] = self.ctype
+        self.info['dtype'] = self.dtype
+
 
     def _reformat_radec(self,val):
         if val < 0:
