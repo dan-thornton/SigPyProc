@@ -98,8 +98,17 @@ class TimeSeries(Header):
         newTimBuffer  = Buffer(self.info["nsamples"],C.c_float)
         lib.runningMean(self.timBuffer.Cbuffer,newTimBuffer.Cbuffer,self.info["nsamples"],window)
         return TimeSeries(self.info.copy(),newTimBuffer)
-        
 
+    def downsample(self,factor):
+        newLen = self.info["nsamples"]//factor
+        newTimBuffer  = Buffer(newLen,C.c_float)
+        lib.downsampleTim(self.timBuffer.Cbuffer,newTimBuffer.Cbuffer,factor,newLen)
+        self.modify_header('tsamp',self.info['tsamp']*factor)
+        parentInfo = self.info.copy()
+        self.reset_header()
+        return TimeSeries(parentInfo,newTimBuffer)
+
+           
     def toPrestoFormat(self,basename):
         """Write time series in presto .dat format.
         """

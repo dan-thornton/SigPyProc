@@ -271,6 +271,9 @@ class ReadPlan:
         self.I = ObjInst
         self.multi = multi
         self.readBuffer = readBuffer
+        self.nsamps = self.I.info['nsamples']
+        self.nchans = self.I.info['nchans']
+        self.dtypesize = C.sizeof(self.I.ctype)
         if self.multi:
             self.nfiles = ObjInst.nfiles
             self.fils = [inst for inst in self.I.filterbanks]

@@ -30,6 +30,19 @@ void runningMean(float* inbuffer,
   }
 }
 
+void downsampleTim(float* inbuffer,
+		   float* outbuffer,
+		   int factor,
+		   int newLen)
+{
+  int ii,jj;
+  for(ii=0;ii<newLen;ii++){
+    for(jj=0;jj<factor;jj++)
+      outbuffer[ii]+=inbuffer[(ii*factor)+jj];
+    outbuffer[ii]/=(float) factor;
+  }
+}
+
 void foldTim(float* buffer,
 	     double* result,
 	     int* counts, 
